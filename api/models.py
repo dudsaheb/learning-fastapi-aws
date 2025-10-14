@@ -13,6 +13,9 @@ if os.getenv("DEPLOYMENT_ENVIRONMENT") == 'DEV':
     engine = create_engine(os.getenv("DB_URL"), connect_args={'check_same_thread': False})
 else:
     engine = create_engine(os.getenv("DB_URL"))
+    
+#AWS_DATABASE_URL = "postgresql://rootuser:rootuser_password@fastapi-aws-database.cgx644u6a0rx.us-east-1.rds.amazonaws.com:5432/postgres"
+#engine = create_engine(AWS_DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
