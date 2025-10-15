@@ -15,19 +15,22 @@ engine = create_engine(DATABASE_URL)
 @router.get("/latest-payments/", response_model=List[PaymentRecord])
 def get_latest_payments(limit: int = 1000):
     """
-    Open GET API to fetch latest payments.
-    Anyone can call this endpoint without authentication.
+    Open GET API to fetch the latest 'limit' payments in descending order.
     """
-    query = text("""
-        SELECT id, user_id, amount, currency, description
-        FROM payments
-        ORDER BY created_at DESC
-        LIMIT :limit
-    """)
+    try:
+        query = text("""
+            SELECT id, user_id, amount, currency, description, created_at
+            FROM payments
+            ORDER BY created_at DESC
+            LIMIT :limit
+        """)
 
-    with engine.connect() as conn:
-        result = conn.execute(query, {"limit": limit})
-        rows = result.fetchall()
+        with engine.connect() as conn:
+            result = conn.execute(query, {"limit": limit})
+            rows = result.fetchall()
 
-    payments = [PaymentRecord(**dict(row)) for row in rows]
-    return payments
+        payments = [PaymentRecord(**dict(row)) for row in rows]
+        return payments
+
+    except Exception as e:
+        return {"error": str(e)}
