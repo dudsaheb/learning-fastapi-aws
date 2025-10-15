@@ -8,10 +8,36 @@ import random
 from .routers import dogs, comments, posts, auth, payments
 from .models import Dog, Comment, Post, Image, User, SessionLocal
 
+import boto3
+import json
+
 
 load_dotenv()
 
 app = FastAPI()
+
+
+# ====== Adding aws SQS code =======
+
+# Set Queue URL from env variable
+QUEUE_URL = os.getenv("SQS_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/284077270042/PaymentsQueue")
+
+# Create SQS client
+sqs = boto3.client('sqs', region_name='us-east-1')
+
+@app.post("/payments/")
+async def create_payment(payment: dict):
+    try:
+        # Send payment to SQS
+        response = sqs.send_message(
+            QueueUrl=QUEUE_URL,
+            MessageBody=json.dumps(payment)
+        )
+        return {"status": "queued", "message_id": response['MessageId']}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ======= End aws SQS code ========
 
 app.add_middleware(
     CORSMiddleware,
