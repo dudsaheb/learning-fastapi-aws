@@ -5,8 +5,9 @@ import os
 from datetime import datetime, timezone
 import random
 
-from .routers import dogs, comments, posts, auth
+from .routers import dogs, comments, posts, auth, payments
 from .models import Dog, Comment, Post, Image, User, SessionLocal
+
 
 load_dotenv()
 
@@ -67,6 +68,8 @@ app.include_router(auth.router)
 app.include_router(dogs.router)
 app.include_router(comments.router)
 app.include_router(posts.router)
+
+app.include_router(payments.router)
 
 @app.get("/")
 async def health_check():

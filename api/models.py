@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker, validates
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+from sqlalchemy import Numeric, Text, func
 import os
 
 load_dotenv()
@@ -64,5 +65,20 @@ class Comment(Base):
     post_id = Column(Integer, ForeignKey('posts.id'))
     user = relationship("User")
     post = relationship("Post", back_populates="comments")
+
+
+class Payment(Base):
+    __tablename__ = 'payments'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
+    currency = Column(String(8), nullable=False, default='INR')
+    status = Column(String(32), nullable=False, default='PAID')  # e.g., PAID, FAILED, PENDING
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Optional: relationship to User if you want
+    user = relationship("User", backref="payments")
 
 Base.metadata.create_all(bind=engine)
