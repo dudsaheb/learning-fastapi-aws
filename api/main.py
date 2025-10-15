@@ -5,7 +5,9 @@ import os
 from datetime import datetime, timezone
 import random
 
-from .routers import dogs, comments, posts, auth, pay, payments, consumer
+from .routers import dogs, comments, posts, auth
+# pay, payments, consumer
+# from .routers import payments
 from .models import Dog, Comment, Post, Image, User, SessionLocal
 
 load_dotenv()
@@ -68,7 +70,7 @@ app.include_router(dogs.router)
 app.include_router(comments.router)
 app.include_router(posts.router)
 #app.include_router(pay.router)
-app.include_router(payments.router)
+#app.include_router(payments.router)
 #app.include_router(consumer.router)
 
 @app.get("/")
