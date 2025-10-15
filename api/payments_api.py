@@ -19,7 +19,7 @@ def get_latest_payments(limit: int = 1000):
     Anyone can call this endpoint without authentication.
     """
     query = text("""
-        SELECT id, user_id, amount, currency, description, created_at
+        SELECT id, user_id, amount, currency, description
         FROM payments
         ORDER BY created_at DESC
         LIMIT :limit
