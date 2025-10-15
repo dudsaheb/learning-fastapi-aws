@@ -24,3 +24,12 @@ class PaymentOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class PaymentRecord(BaseModel):
+    id: int
+    user_id: int
+    amount: float
+    currency: str
+    description: str
+    created_at: datetime  # make sure your payments table has this column

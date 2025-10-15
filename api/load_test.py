@@ -31,3 +31,7 @@ async def run_loadtest(count: int = 1000):
         await asyncio.gather(*tasks)
 
     return {"message": f"{count} requests sent successfully"}
+
+
+#testing using curl
+#curl -X POST "http://dudsaheb.us-east-1.elasticbeanstalk.com/run-loadtest/" -H "Content-Type: application/json" -d '{"count": 10}'
