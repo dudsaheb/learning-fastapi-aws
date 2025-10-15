@@ -1,8 +1,12 @@
 import asyncio
 import aiohttp
+import os
 from fastapi import APIRouter
 
 router = APIRouter()
+
+apiUrl = os.getenv("API_URL")
+endpoint = "/payments/"
 
 @router.post("/run-loadtest/")
 async def run_loadtest(count: int = 1000):
@@ -10,7 +14,7 @@ async def run_loadtest(count: int = 1000):
     Fire 'count' POST requests to /payments endpoint for load testing.
     """
 
-    url = "http://localhost:8000/payments/"  # Internal endpoint or EB domain
+    url = apiUrl+endpoint  # Internal endpoint or EB domain
 
     async def send_payment(session, i):
         payload = {
