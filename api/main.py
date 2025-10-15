@@ -67,9 +67,9 @@ app.include_router(auth.router)
 app.include_router(dogs.router)
 app.include_router(comments.router)
 app.include_router(posts.router)
-app.include_router(pay.router)
+#app.include_router(pay.router)
 app.include_router(payments.router)
-app.include_router(consumer.router)
+#app.include_router(consumer.router)
 
 @app.get("/")
 async def health_check():
