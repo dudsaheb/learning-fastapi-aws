@@ -17,10 +17,10 @@ from api.payments_api import router as payments_router
 load_dotenv()
 
 app = FastAPI()
-
+#allow_origins=[os.getenv("API_URL")],  # The default React port
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("API_URL")],  # The default React port
+    allow_origins=["*"],  # The default React port
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
