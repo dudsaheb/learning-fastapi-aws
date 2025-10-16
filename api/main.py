@@ -15,6 +15,10 @@ from api.payments_api import router as payments_router
 
 from fastapi.responses import RedirectResponse
 from fastapi.requests import Request
+from fastapi import Request
+import traceback
+from fastapi.responses import JSONResponse
+import sys
 
 
 load_dotenv()
@@ -36,6 +40,7 @@ app = FastAPI()
 # Recommended: explicitly list your frontend origins for production
 allowed_origins = [
     "https://frontendreact.sdude.in",
+    "https://sdude.in",
     "https://main.d1d1negibjx492.amplifyapp.com",
     "http://localhost:3000",  # for local testing
     "http://localhost:8000",  # for local testing
@@ -62,6 +67,25 @@ async def conditional_https_redirect(request: Request, call_next):
     return await call_next(request)
 
 
+
+
+
+
+@app.middleware("http")
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        # Print full stack trace to console / Elastic Beanstalk logs
+        print(f"\n--- Exception in request: {request.method} {request.url} ---", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        print(f"--- End of exception ---\n", file=sys.stderr)
+        
+        # Return a safe JSON error to the client
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)},
+        )
 
 
 @app.post("/populate/")
