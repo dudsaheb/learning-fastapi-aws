@@ -1,14 +1,15 @@
 from datetime import timedelta, datetime, timezone
 from typing import Annotated, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from jose import jwt
 from dotenv import load_dotenv
 import os, sys
+from passlib.hash import argon2
 
 from api.models import User, Image
-from api.dependencies.deps import db_dependency, bcrypt_context
+from api.dependencies.deps import db_dependency
 
 load_dotenv()
 
@@ -21,7 +22,7 @@ router = APIRouter(
 SECRET_KEY = os.getenv("AUTH_SECRET_KEY")
 ALGORITHM = os.getenv("AUTH_ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = 20
-MAX_BCRYPT_BYTES = 72  # bcrypt limit
+
 
 # -----------------------------
 # Schemas
@@ -52,8 +53,8 @@ def authenticate_user(username: str, password: str, db):
     image = db.query(Image).filter(Image.user_id == user.id).first()
     user.image = image.image if image else None
 
-    # Verify password
-    if not bcrypt_context.verify(password, user.hashed_password):
+    # Verify password using Argon2 (no length restriction)
+    if not argon2.verify(password, user.hashed_password):
         return None
 
     return user
@@ -71,31 +72,10 @@ def create_access_token(username: str, user_id: int, expires_delta: timedelta):
 # Routes
 # -----------------------------
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_user(
-    request: Request,
-    db: db_dependency,
-    create_user_request: UserCreateRequest
-):
+async def create_user(db: db_dependency, create_user_request: UserCreateRequest):
     """Register a new user."""
 
-    # --- Debug log: see what the frontend sends ---
-    password_bytes = create_user_request.password.encode("utf-8")
-    print(
-        f"Password debug → raw: {create_user_request.password!r}, "
-        f"len(chars): {len(create_user_request.password)}, "
-        f"len(bytes): {len(password_bytes)}",
-        file=sys.stderr,
-    )
-
-    # --- Validate password length for bcrypt ---
-    if len(password_bytes) > MAX_BCRYPT_BYTES:
-        print(
-            f"Truncating password for user {create_user_request.username}",
-            file=sys.stderr,
-        )
-        create_user_request.password = create_user_request.password[:MAX_BCRYPT_BYTES]
-
-    # --- Prevent duplicate usernames ---
+    # Prevent duplicate usernames
     existing_user = db.query(User).filter(User.username == create_user_request.username).first()
     if existing_user:
         raise HTTPException(
@@ -103,14 +83,14 @@ async def create_user(
             detail="Username already exists. Please choose a different username."
         )
 
-    # --- Hash password safely ---
+    # Hash password using Argon2 — supports long passwords
     try:
-        hashed_password = bcrypt_context.hash(create_user_request.password)
+        hashed_password = argon2.hash(create_user_request.password)
     except Exception as e:
-        print(f"bcrypt error: {e}", file=sys.stderr)
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Argon2 error: {e}", file=sys.stderr)
+        raise HTTPException(status_code=500, detail="Password hashing failed")
 
-    # --- Create user record ---
+    # Create user
     create_user_model = User(
         username=create_user_request.username,
         first_name=create_user_request.first_name,
@@ -121,13 +101,13 @@ async def create_user(
     db.commit()
     db.refresh(create_user_model)
 
-    # --- Add optional image record ---
+    # Create optional image entry
     image_data = create_user_request.image if create_user_request.image else None
     image_model = Image(image=image_data, user_id=create_user_model.id)
     db.add(image_model)
     db.commit()
 
-    print(f"User {create_user_request.username} created successfully", file=sys.stderr)
+    print(f"✅ User {create_user_request.username} created successfully", file=sys.stderr)
 
     return {"message": "User created successfully", "username": create_user_model.username}
 
