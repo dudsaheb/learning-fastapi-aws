@@ -5,11 +5,11 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from jose import jwt
 from dotenv import load_dotenv
-import os, sys
-from passlib.hash import argon2
+import os
+import sys
 
 from api.models import User, Image
-from api.dependencies.deps import db_dependency
+from api.dependencies.deps import db_dependency, bcrypt_context
 
 load_dotenv()
 
@@ -18,7 +18,6 @@ router = APIRouter(
     tags=["auth"]
 )
 
-# Environment variables
 SECRET_KEY = os.getenv("AUTH_SECRET_KEY")
 ALGORITHM = os.getenv("AUTH_ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = 20
@@ -45,7 +44,7 @@ class Token(BaseModel):
 # Helper Functions
 # -----------------------------
 def authenticate_user(username: str, password: str, db):
-    """Verify username + password and return user object."""
+    """Check username + password."""
     user = db.query(User).filter(User.username == username).first()
     if not user:
         return None
@@ -53,8 +52,11 @@ def authenticate_user(username: str, password: str, db):
     image = db.query(Image).filter(Image.user_id == user.id).first()
     user.image = image.image if image else None
 
-    # Verify password using Argon2 (no length restriction)
-    if not argon2.verify(password, user.hashed_password):
+    try:
+        if not bcrypt_context.verify(password[:72], user.hashed_password):
+            return None
+    except Exception as e:
+        print(f"bcrypt verify error: {e}", file=sys.stderr)
         return None
 
     return user
@@ -73,21 +75,19 @@ def create_access_token(username: str, user_id: int, expires_delta: timedelta):
 # -----------------------------
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_user(db: db_dependency, create_user_request: UserCreateRequest):
-    """Register a new user."""
+    """Register a new user (simplified, stable version)."""
 
-    # Prevent duplicate usernames
     existing_user = db.query(User).filter(User.username == create_user_request.username).first()
     if existing_user:
-        raise HTTPException(
-            status_code=400,
-            detail="Username already exists. Please choose a different username."
-        )
+        raise HTTPException(status_code=400, detail="Username already exists")
 
-    # Hash password using Argon2 — supports long passwords
+    # Always hash only first 72 chars to avoid bcrypt error
+    password_to_hash = create_user_request.password[:72]
+
     try:
-        hashed_password = argon2.hash(create_user_request.password)
+        hashed_password = bcrypt_context.hash(password_to_hash)
     except Exception as e:
-        print(f"Argon2 error: {e}", file=sys.stderr)
+        print(f"bcrypt error: {e}", file=sys.stderr)
         raise HTTPException(status_code=500, detail="Password hashing failed")
 
     # Create user
@@ -101,13 +101,13 @@ async def create_user(db: db_dependency, create_user_request: UserCreateRequest)
     db.commit()
     db.refresh(create_user_model)
 
-    # Create optional image entry
+    # Create image record
     image_data = create_user_request.image if create_user_request.image else None
     image_model = Image(image=image_data, user_id=create_user_model.id)
     db.add(image_model)
     db.commit()
 
-    print(f"✅ User {create_user_request.username} created successfully", file=sys.stderr)
+    print(f"User {create_user_request.username} created successfully", file=sys.stderr)
 
     return {"message": "User created successfully", "username": create_user_model.username}
 
@@ -117,12 +117,12 @@ async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: db_dependency
 ):
-    """Login and issue JWT token."""
+    """Login and get JWT token."""
     user = authenticate_user(form_data.username, form_data.password, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password."
+            detail="Invalid username or password"
         )
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
