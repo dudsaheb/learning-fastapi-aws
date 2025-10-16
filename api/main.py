@@ -13,18 +13,54 @@ from .load_test import router as load_test_router
 #from .load_test_ui import router as load_test_ui_router
 from api.payments_api import router as payments_router
 
+from fastapi.responses import RedirectResponse
+
 
 load_dotenv()
 
 app = FastAPI()
-#allow_origins=[os.getenv("API_URL")],  # The default React port
+# #allow_origins=[os.getenv("API_URL")],  # The default React port
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],  # The default React port
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+
+# -------------------------------------------------------------------
+# CORSMiddleware should be FIRST and configured before routers
+# -------------------------------------------------------------------
+# Recommended: explicitly list your frontend origins for production
+allowed_origins = [
+    "https://frontendreact.sdude.in",
+    "https://main.d1d1negibjx492.amplifyapp.com",
+    "http://localhost:3000",  # for local testing
+    "http://localhost:8000",  # for local testing
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # The default React port
+    allow_origins=allowed_origins,  # use ["*"] only for debugging
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# -------------------------------------------------------------------
+# ✅ Custom HTTPS redirect middleware
+# (handles HTTP→HTTPS safely without breaking OPTIONS preflight)
+# -------------------------------------------------------------------
+@app.middleware("http")
+async def conditional_https_redirect(request: Request, call_next):
+    # Skip redirect for preflight requests and when already HTTPS
+    if request.url.scheme == "http" and request.method != "OPTIONS":
+        url = request.url.replace(scheme="https")
+        return RedirectResponse(url=url._url)
+    return await call_next(request)
+
+
 
 
 @app.post("/populate/")
@@ -70,22 +106,24 @@ def populate_db():
         session.close()
     return {"message": "Database populated successfully!"}
 
+# -------------------------------------------------------------------
+# Include routers
+# -------------------------------------------------------------------
 app.include_router(auth.router)
 app.include_router(dogs.router)
 app.include_router(comments.router)
 app.include_router(posts.router)
-#app.include_router(pay.router)
 app.include_router(payments.router)
-#app.include_router(consumer.router)
-
 app.include_router(load_test_router)
-#app.include_router(load_test_ui_router)
-
-# Register the payments API router
 app.include_router(payments_router)
 
 @app.get("/")
 async def health_check():
     return {"Healthy": 200}
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 
 #comment
