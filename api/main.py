@@ -44,6 +44,7 @@ allowed_origins = [
     "https://main.d1d1negibjx492.amplifyapp.com",
     "http://localhost:3000",  # for local testing
     "http://localhost:8000",  # for local testing
+    "*",
 ]
 
 app.add_middleware(
