@@ -1,11 +1,11 @@
 from datetime import timedelta, datetime, timezone
 from typing import Annotated, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from jose import jwt
 from dotenv import load_dotenv
-import os
+import os, sys
 
 from api.models import User, Image
 from api.dependencies.deps import db_dependency, bcrypt_context
@@ -17,12 +17,11 @@ router = APIRouter(
     tags=["auth"]
 )
 
+# Environment variables
 SECRET_KEY = os.getenv("AUTH_SECRET_KEY")
 ALGORITHM = os.getenv("AUTH_ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = 20
-
-MAX_BCRYPT_BYTES = 72  # bcrypt only supports passwords <= 72 bytes
-
+MAX_BCRYPT_BYTES = 72  # bcrypt limit
 
 # -----------------------------
 # Schemas
@@ -42,9 +41,10 @@ class Token(BaseModel):
 
 
 # -----------------------------
-# Helpers
+# Helper Functions
 # -----------------------------
 def authenticate_user(username: str, password: str, db):
+    """Verify username + password and return user object."""
     user = db.query(User).filter(User.username == username).first()
     if not user:
         return None
@@ -52,31 +52,50 @@ def authenticate_user(username: str, password: str, db):
     image = db.query(Image).filter(Image.user_id == user.id).first()
     user.image = image.image if image else None
 
+    # Verify password
     if not bcrypt_context.verify(password, user.hashed_password):
         return None
+
     return user
 
 
 def create_access_token(username: str, user_id: int, expires_delta: timedelta):
-    to_encode = {"sub": username, "id": user_id}
+    """Generate JWT access token."""
+    payload = {"sub": username, "id": user_id}
     expire = datetime.now(timezone.utc) + expires_delta
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    payload.update({"exp": expire})
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 # -----------------------------
 # Routes
 # -----------------------------
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_user(db: db_dependency, create_user_request: UserCreateRequest):
-    # Validate password length for bcrypt
-    if len(create_user_request.password.encode("utf-8")) > MAX_BCRYPT_BYTES:
-        raise HTTPException(
-            status_code=400,
-            detail="Password too long (max 72 characters). Please use a shorter password."
-        )
+async def create_user(
+    request: Request,
+    db: db_dependency,
+    create_user_request: UserCreateRequest
+):
+    """Register a new user."""
 
-    # Check for existing username
+    # --- Debug log: see what the frontend sends ---
+    password_bytes = create_user_request.password.encode("utf-8")
+    print(
+        f"Password debug → raw: {create_user_request.password!r}, "
+        f"len(chars): {len(create_user_request.password)}, "
+        f"len(bytes): {len(password_bytes)}",
+        file=sys.stderr,
+    )
+
+    # --- Validate password length for bcrypt ---
+    if len(password_bytes) > MAX_BCRYPT_BYTES:
+        print(
+            f"Truncating password for user {create_user_request.username}",
+            file=sys.stderr,
+        )
+        create_user_request.password = create_user_request.password[:MAX_BCRYPT_BYTES]
+
+    # --- Prevent duplicate usernames ---
     existing_user = db.query(User).filter(User.username == create_user_request.username).first()
     if existing_user:
         raise HTTPException(
@@ -84,10 +103,14 @@ async def create_user(db: db_dependency, create_user_request: UserCreateRequest)
             detail="Username already exists. Please choose a different username."
         )
 
-    # Hash password safely
-    hashed_password = bcrypt_context.hash(create_user_request.password[:MAX_BCRYPT_BYTES])
+    # --- Hash password safely ---
+    try:
+        hashed_password = bcrypt_context.hash(create_user_request.password)
+    except Exception as e:
+        print(f"bcrypt error: {e}", file=sys.stderr)
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # Create user
+    # --- Create user record ---
     create_user_model = User(
         username=create_user_request.username,
         first_name=create_user_request.first_name,
@@ -98,11 +121,13 @@ async def create_user(db: db_dependency, create_user_request: UserCreateRequest)
     db.commit()
     db.refresh(create_user_model)
 
-    # Create optional image entry
+    # --- Add optional image record ---
     image_data = create_user_request.image if create_user_request.image else None
     image_model = Image(image=image_data, user_id=create_user_model.id)
     db.add(image_model)
     db.commit()
+
+    print(f"User {create_user_request.username} created successfully", file=sys.stderr)
 
     return {"message": "User created successfully", "username": create_user_model.username}
 
@@ -112,11 +137,12 @@ async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: db_dependency
 ):
+    """Login and issue JWT token."""
     user = authenticate_user(form_data.username, form_data.password, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password"
+            detail="Invalid username or password."
         )
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
