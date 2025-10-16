@@ -14,6 +14,7 @@ from .load_test import router as load_test_router
 from api.payments_api import router as payments_router
 
 from fastapi.responses import RedirectResponse
+from fastapi.requests import Request
 
 
 load_dotenv()
