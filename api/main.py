@@ -149,7 +149,7 @@ async def health_check():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok, It is working."}
 
 
 #comment

@@ -22,3 +22,4 @@ python-jose[cryptography]
 python-multipart
 aiohttp
 asyncio
+jinja2
