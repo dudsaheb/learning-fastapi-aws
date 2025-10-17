@@ -37,19 +37,24 @@ sqs = boto3.client(
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
 )
 
+# ======= CONSTANT USER ID =======
+DEFAULT_USER_ID = 32
+
 # ======= 1️⃣ Direct DB Payment Insert =======
 @router.post("/", response_model=PaymentResponse)
 def add_payment(payment_in: PaymentCreate, db: Session = Depends(get_db)):
     """
-    Save a payment directly into the database.
+    Save a payment directly into the database for user_id=32.
     Inserts a random amount if not provided.
     """
     try:
+        payment_in.user_id = DEFAULT_USER_ID  # 👈 Always use user_id = 32
+
         if not payment_in.amount or payment_in.amount <= 0:
             payment_in.amount = round(random.uniform(10, 5000), 2)
 
         payment = create_payment(db, payment_in)
-        logger.info(f"💰 Payment inserted: ID={payment.id}, Amount={payment_in.amount}")
+        logger.info(f"💰 Payment inserted: ID={payment.id}, User={payment_in.user_id}, Amount={payment_in.amount}")
 
         return PaymentResponse(success=True, payment_id=payment.id, message="Payment recorded successfully")
 
@@ -62,10 +67,12 @@ def add_payment(payment_in: PaymentCreate, db: Session = Depends(get_db)):
 @router.post("/queue/")
 async def create_payment_queue(payment: PaymentCreate):
     """
-    Send a single payment message to AWS SQS queue.
+    Send a single payment message to AWS SQS queue for user_id=32.
     Randomizes amount if not provided.
     """
     try:
+        payment.user_id = DEFAULT_USER_ID  # 👈 Always use user_id = 32
+
         if not payment.amount or payment.amount <= 0:
             payment.amount = round(random.uniform(10, 5000), 2)
 
@@ -73,7 +80,7 @@ async def create_payment_queue(payment: PaymentCreate):
         response = sqs.send_message(QueueUrl=QUEUE_URL, MessageBody=message_body)
 
         logger.info(f"📦 Queued payment | User={payment.user_id} | Amount=₹{payment.amount} | MsgID={response['MessageId']}")
-        return {"status": "queued", "message_id": response["MessageId"], "amount": payment.amount}
+        return {"status": "queued", "message_id": response["MessageId"], "user_id": payment.user_id, "amount": payment.amount}
 
     except Exception as e:
         logger.error(f"❌ SQS Queue Error: {e}")
@@ -84,16 +91,18 @@ async def create_payment_queue(payment: PaymentCreate):
 @router.post("/queue/bulk/")
 async def create_bulk_payments(batch_size: int = 10):
     """
-    Sends a batch of random payment messages to AWS SQS.
+    Sends a batch of random payment messages to AWS SQS for user_id=32.
     Each batch sends up to 10 messages per API call.
-    Call this endpoint multiple times (or parallelize) to achieve 10,000 msg/sec.
     """
     try:
         messages = []
         for i in range(batch_size):
             payment_data = {
-                "user_id": random.randint(1, 10000),
-                "amount": round(random.uniform(10, 5000), 2)
+                "user_id": DEFAULT_USER_ID,  # 👈 Always user 32
+                "amount": round(random.uniform(10, 5000), 2),
+                "currency": "INR",
+                "status": "PENDING",
+                "description": f"Auto-generated batch payment #{i+1}"
             }
             messages.append({
                 "Id": str(i),
@@ -104,9 +113,10 @@ async def create_bulk_payments(batch_size: int = 10):
         success_count = len(response.get("Successful", []))
         fail_count = len(response.get("Failed", []))
 
-        logger.info(f"🚀 Batch sent | Success={success_count} | Failed={fail_count}")
+        logger.info(f"🚀 Batch sent | User={DEFAULT_USER_ID} | Success={success_count} | Failed={fail_count}")
         return {
             "status": "batch_sent",
+            "user_id": DEFAULT_USER_ID,
             "success": success_count,
             "failed": fail_count,
             "message": "Batch queued to SQS successfully"
@@ -122,7 +132,6 @@ async def create_bulk_payments(batch_size: int = 10):
 def get_queue_metrics():
     """
     Returns real-time SQS queue statistics.
-    Useful for frontend dashboards to monitor load & processing.
     """
     try:
         attrs = sqs.get_queue_attributes(
@@ -149,7 +158,7 @@ def get_queue_metrics():
 @router.get("/{payment_id}", response_model=PaymentOut)
 def read_payment(payment_id: int, db: Session = Depends(get_db)):
     """
-    Fetch payment record by ID from the database.
+    Fetch payment record by ID.
     """
     try:
         payment = get_payment(db, payment_id)
@@ -163,6 +172,8 @@ def read_payment(payment_id: int, db: Session = Depends(get_db)):
         logger.error(f"❌ Read Payment Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ======= 6️⃣ Get Latest Payments =======
 @router.get("/latest/")
 def get_latest_payments(limit: int = 20, db: Session = Depends(get_db)):
     """
@@ -170,8 +181,8 @@ def get_latest_payments(limit: int = 20, db: Session = Depends(get_db)):
     """
     try:
         payments = db.execute(
-            "SELECT * FROM payments ORDER BY created_at DESC LIMIT :limit",
-            {"limit": limit}
+            "SELECT * FROM payments WHERE user_id = :uid ORDER BY created_at DESC LIMIT :limit",
+            {"uid": DEFAULT_USER_ID, "limit": limit}
         ).fetchall()
 
         return [
