@@ -9,12 +9,13 @@ import json
 import os
 import random
 import logging
+from typing import List
 
 # ======= Router Setup =======
 router = APIRouter(prefix="/payments", tags=["payments"])
 
-# ======= Logging =======
-logging.basicConfig(level=logging.INFO)
+# ======= Logging Setup =======
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # ======= Dependency for DB session =======
@@ -27,64 +28,128 @@ def get_db():
 
 # ======= SQS Configuration =======
 QUEUE_URL = os.getenv("SQS_QUEUE_URL")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+
 sqs = boto3.client(
     "sqs",
-    region_name="us-east-1",
+    region_name=AWS_REGION,
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
 )
 
-# ======= DB Payment Endpoint =======
+# ======= 1️⃣ Direct DB Payment Insert =======
 @router.post("/", response_model=PaymentResponse)
 def add_payment(payment_in: PaymentCreate, db: Session = Depends(get_db)):
     """
-    Save payment directly to the DB (reference only)
+    Save a payment directly into the database.
     Inserts a random amount if not provided.
     """
     try:
-        # Assign random amount if missing or zero
         if not payment_in.amount or payment_in.amount <= 0:
             payment_in.amount = round(random.uniform(10, 5000), 2)
 
         payment = create_payment(db, payment_in)
         logger.info(f"💰 Payment inserted: ID={payment.id}, Amount={payment_in.amount}")
 
-        return PaymentResponse(success=True, payment_id=payment.id, message="Payment recorded")
+        return PaymentResponse(success=True, payment_id=payment.id, message="Payment recorded successfully")
 
     except Exception as e:
         logger.error(f"❌ DB Insert Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ======= SQS Queue Endpoint =======
+
+# ======= 2️⃣ Queue Single Payment to SQS =======
 @router.post("/queue/")
 async def create_payment_queue(payment: PaymentCreate):
     """
-    Send payment message to AWS SQS queue.
-    Automatically generates a random amount if not provided.
+    Send a single payment message to AWS SQS queue.
+    Randomizes amount if not provided.
     """
     try:
-        # Add random amount if not specified
         if not payment.amount or payment.amount <= 0:
             payment.amount = round(random.uniform(10, 5000), 2)
 
-        payment_dict = payment.dict()
-        response = sqs.send_message(
-            QueueUrl=QUEUE_URL,
-            MessageBody=json.dumps(payment_dict)
-        )
+        message_body = json.dumps(payment.dict())
+        response = sqs.send_message(QueueUrl=QUEUE_URL, MessageBody=message_body)
 
-        logger.info(f"📦 Queued payment for user {payment.user_id} | Amount ₹{payment.amount} | MsgID: {response['MessageId']}")
-        return {"status": "queued", "message_id": response['MessageId'], "amount": payment.amount}
+        logger.info(f"📦 Queued payment | User={payment.user_id} | Amount=₹{payment.amount} | MsgID={response['MessageId']}")
+        return {"status": "queued", "message_id": response["MessageId"], "amount": payment.amount}
 
     except Exception as e:
         logger.error(f"❌ SQS Queue Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ======= Get Payment by ID =======
+
+# ======= 3️⃣ Queue Bulk Payments to SQS =======
+@router.post("/queue/bulk/")
+async def create_bulk_payments(batch_size: int = 10):
+    """
+    Sends a batch of random payment messages to AWS SQS.
+    Each batch sends up to 10 messages per API call.
+    Call this endpoint multiple times (or parallelize) to achieve 10,000 msg/sec.
+    """
+    try:
+        messages = []
+        for i in range(batch_size):
+            payment_data = {
+                "user_id": random.randint(1, 10000),
+                "amount": round(random.uniform(10, 5000), 2)
+            }
+            messages.append({
+                "Id": str(i),
+                "MessageBody": json.dumps(payment_data)
+            })
+
+        response = sqs.send_message_batch(QueueUrl=QUEUE_URL, Entries=messages)
+        success_count = len(response.get("Successful", []))
+        fail_count = len(response.get("Failed", []))
+
+        logger.info(f"🚀 Batch sent | Success={success_count} | Failed={fail_count}")
+        return {
+            "status": "batch_sent",
+            "success": success_count,
+            "failed": fail_count,
+            "message": "Batch queued to SQS successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"❌ SQS Batch Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ======= 4️⃣ Queue Metrics (for frontend) =======
+@router.get("/queue/metrics")
+def get_queue_metrics():
+    """
+    Returns real-time SQS queue statistics.
+    Useful for frontend dashboards to monitor load & processing.
+    """
+    try:
+        attrs = sqs.get_queue_attributes(
+            QueueUrl=QUEUE_URL,
+            AttributeNames=[
+                "ApproximateNumberOfMessages",
+                "ApproximateNumberOfMessagesNotVisible",
+                "ApproximateNumberOfMessagesDelayed"
+            ]
+        )
+        visible = int(attrs["Attributes"].get("ApproximateNumberOfMessages", 0))
+        inflight = int(attrs["Attributes"].get("ApproximateNumberOfMessagesNotVisible", 0))
+        delayed = int(attrs["Attributes"].get("ApproximateNumberOfMessagesDelayed", 0))
+
+        logger.info(f"📊 Queue Metrics | Visible={visible}, InFlight={inflight}, Delayed={delayed}")
+        return {"visible": visible, "inflight": inflight, "delayed": delayed}
+
+    except Exception as e:
+        logger.error(f"❌ Queue Metrics Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ======= 5️⃣ Get Payment by ID =======
 @router.get("/{payment_id}", response_model=PaymentOut)
 def read_payment(payment_id: int, db: Session = Depends(get_db)):
     """
-    Fetch payment record by ID.
+    Fetch payment record by ID from the database.
     """
     try:
         payment = get_payment(db, payment_id)
