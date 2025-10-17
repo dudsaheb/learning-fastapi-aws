@@ -30,12 +30,14 @@ def get_db():
 QUEUE_URL = os.getenv("SQS_QUEUE_URL")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
-sqs = boto3.client(
-    "sqs",
-    region_name=AWS_REGION,
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
-)
+# sqs = boto3.client(
+#     "sqs",
+#     region_name=AWS_REGION,
+#     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+#     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+# )
+
+sqs = boto3.client("sqs", region_name=AWS_REGION)
 
 # ======= CONSTANT USER ID =======
 DEFAULT_USER_ID = 32
