@@ -162,3 +162,28 @@ def read_payment(payment_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"❌ Read Payment Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/latest/")
+def get_latest_payments(limit: int = 20, db: Session = Depends(get_db)):
+    """
+    Fetch latest payment records in descending order by creation time.
+    """
+    try:
+        payments = db.execute(
+            "SELECT * FROM payments ORDER BY created_at DESC LIMIT :limit",
+            {"limit": limit}
+        ).fetchall()
+
+        return [
+            {
+                "id": p.id,
+                "user_id": p.user_id,
+                "amount": p.amount,
+                "currency": getattr(p, "currency", "INR"),
+                "description": getattr(p, "description", ""),
+                "created_at": p.created_at
+            }
+            for p in payments
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
