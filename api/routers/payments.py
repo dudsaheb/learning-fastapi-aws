@@ -73,18 +73,28 @@ async def create_payment_queue(payment: PaymentCreate):
     try:
         payment.user_id = DEFAULT_USER_ID  # 👈 Always use user_id = 32
 
-        if not payment.amount or payment.amount <= 0:
+        if not payment.amount or float(payment.amount) <= 0:
             payment.amount = round(random.uniform(10, 5000), 2)
 
-        message_body = json.dumps(payment.dict())
+        # ✅ Ensure amount is serializable (convert to float)
+        payment_dict = payment.dict()
+        payment_dict["amount"] = float(payment_dict["amount"])
+
+        message_body = json.dumps(payment_dict)
         response = sqs.send_message(QueueUrl=QUEUE_URL, MessageBody=message_body)
 
         logger.info(f"📦 Queued payment | User={payment.user_id} | Amount=₹{payment.amount} | MsgID={response['MessageId']}")
-        return {"status": "queued", "message_id": response["MessageId"], "user_id": payment.user_id, "amount": payment.amount}
+        return {
+            "status": "queued",
+            "message_id": response["MessageId"],
+            "user_id": payment.user_id,
+            "amount": payment.amount
+        }
 
     except Exception as e:
         logger.error(f"❌ SQS Queue Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ======= 3️⃣ Queue Bulk Payments to SQS =======
