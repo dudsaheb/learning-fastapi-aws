@@ -217,31 +217,31 @@ def read_payment(payment_id: int, db: Session = Depends(get_db)):
 @router.get("/latest/")
 def get_latest_payments(limit: int = 20, db: Session = Depends(get_db)):
     """
-    Fetch latest payment records (latest first) for user_id=32.
+    Fetch latest payment records (for user_id=32) ordered by creation time.
     Compatible with React dashboard.
     """
     try:
-        query = text(f"""
+        query = text("""
             SELECT id, user_id, amount, currency, status, description, created_at
             FROM payments
             WHERE user_id = :uid
             ORDER BY created_at DESC
-            LIMIT {limit};
+            LIMIT :limit
         """)
 
-        result = db.execute(query, {"uid": DEFAULT_USER_ID}).fetchall()
+        result = db.execute(query, {"uid": DEFAULT_USER_ID, "limit": limit}).fetchall()
 
         payments = [
             {
-                "id": r.id,
-                "user_id": r.user_id,
-                "amount": float(r.amount),
-                "currency": r.currency or "INR",
-                "description": r.description or "",
-                "status": r.status or "PENDING",
-                "created_at": r.created_at,
+                "id": row.id,
+                "user_id": row.user_id,
+                "amount": float(row.amount),
+                "currency": row.currency or "INR",
+                "status": row.status or "PENDING",
+                "description": row.description or "",
+                "created_at": row.created_at,
             }
-            for r in result
+            for row in result
         ]
 
         return payments
@@ -249,3 +249,4 @@ def get_latest_payments(limit: int = 20, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"❌ Latest Payments Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
