@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from api.models import SessionLocal
 from api.schemas.payment import PaymentCreate, PaymentResponse, PaymentOut
 from api.crud.payment import create_payment, get_payment
+from sqlalchemy import text
 
 import boto3
 import json
@@ -186,27 +187,65 @@ def read_payment(payment_id: int, db: Session = Depends(get_db)):
 
 
 # ======= 6️⃣ Get Latest Payments =======
+# @router.get("/latest/")
+# def get_latest_payments(limit: int = 20, db: Session = Depends(get_db)):
+#     """
+#     Fetch latest payment records in descending order by creation time.
+#     """
+#     try:
+#         payments = db.execute(
+#             "SELECT * FROM payments WHERE user_id = :uid ORDER BY created_at DESC LIMIT :limit",
+#             {"uid": DEFAULT_USER_ID, "limit": limit}
+#         ).fetchall()
+
+#         return [
+#             {
+#                 "id": p.id,
+#                 "user_id": p.user_id,
+#                 "amount": p.amount,
+#                 "currency": getattr(p, "currency", "INR"),
+#                 "description": getattr(p, "description", ""),
+#                 "created_at": p.created_at
+#             }
+#             for p in payments
+#         ]
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @router.get("/latest/")
 def get_latest_payments(limit: int = 20, db: Session = Depends(get_db)):
     """
-    Fetch latest payment records in descending order by creation time.
+    Fetch latest payment records (latest first) for user_id=32.
+    Compatible with React dashboard.
     """
     try:
-        payments = db.execute(
-            "SELECT * FROM payments WHERE user_id = :uid ORDER BY created_at DESC LIMIT :limit",
-            {"uid": DEFAULT_USER_ID, "limit": limit}
-        ).fetchall()
+        query = text(f"""
+            SELECT id, user_id, amount, currency, status, description, created_at
+            FROM payments
+            WHERE user_id = :uid
+            ORDER BY created_at DESC
+            LIMIT {limit};
+        """)
 
-        return [
+        result = db.execute(query, {"uid": DEFAULT_USER_ID}).fetchall()
+
+        payments = [
             {
-                "id": p.id,
-                "user_id": p.user_id,
-                "amount": p.amount,
-                "currency": getattr(p, "currency", "INR"),
-                "description": getattr(p, "description", ""),
-                "created_at": p.created_at
+                "id": r.id,
+                "user_id": r.user_id,
+                "amount": float(r.amount),
+                "currency": r.currency or "INR",
+                "description": r.description or "",
+                "status": r.status or "PENDING",
+                "created_at": r.created_at,
             }
-            for p in payments
+            for r in result
         ]
+
+        return payments
+
     except Exception as e:
+        logger.error(f"❌ Latest Payments Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
