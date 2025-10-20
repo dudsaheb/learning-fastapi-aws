@@ -250,3 +250,4 @@ def get_latest_payments(limit: int = 20, db: Session = Depends(get_db)):
         logger.error(f"❌ Latest Payments Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
