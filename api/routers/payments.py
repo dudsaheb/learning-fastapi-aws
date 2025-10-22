@@ -104,40 +104,41 @@ async def create_payment_queue(payment: PaymentCreate):
 @router.post("/queue/bulk/")
 async def create_bulk_payments(batch_size: int = 10):
     """
-    Sends a batch of random payment messages to AWS SQS for user_id=32.
-    Each batch sends up to 10 messages per API call.
+    Sends multiple SQS batches of up to 10 messages each.
     """
     try:
+        if batch_size < 1:
+            raise HTTPException(status_code=400, detail="Batch size must be at least 1.")
+
+        total_messages = batch_size
         messages = []
-        for i in range(batch_size):
+
+        for i in range(total_messages):
             payment_data = {
-                "user_id": DEFAULT_USER_ID,  # 👈 Always user 32
+                "user_id": 32,
                 "amount": round(random.uniform(10, 5000), 2),
                 "currency": "INR",
                 "status": "PENDING",
                 "description": f"Auto-generated batch payment #{i+1}"
             }
-            messages.append({
-                "Id": str(i),
-                "MessageBody": json.dumps(payment_data)
-            })
+            messages.append({"Id": str(i), "MessageBody": json.dumps(payment_data)})
 
-        response = sqs.send_message_batch(QueueUrl=QUEUE_URL, Entries=messages)
-        success_count = len(response.get("Successful", []))
-        fail_count = len(response.get("Failed", []))
+        # Split into chunks of 10
+        success_count = 0
+        fail_count = 0
+        for j in range(0, len(messages), 10):
+            batch = messages[j:j+10]
+            resp = sqs.send_message_batch(QueueUrl=QUEUE_URL, Entries=batch)
+            success_count += len(resp.get("Successful", []))
+            fail_count += len(resp.get("Failed", []))
 
-        logger.info(f"🚀 Batch sent | User={DEFAULT_USER_ID} | Success={success_count} | Failed={fail_count}")
-        return {
-            "status": "batch_sent",
-            "user_id": DEFAULT_USER_ID,
-            "success": success_count,
-            "failed": fail_count,
-            "message": "Batch queued to SQS successfully"
-        }
+        logger.info(f"🚀 Sent {success_count} messages, Failed {fail_count}")
+        return {"status": "batch_sent", "success": success_count, "failed": fail_count}
 
     except Exception as e:
         logger.error(f"❌ SQS Batch Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ======= 4️⃣ Queue Metrics (for frontend) =======
