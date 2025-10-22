@@ -118,7 +118,7 @@ async def create_bulk_payments(batch_size: int = 10):
                 "user_id": 32,
                 "amount": round(random.uniform(10, 5000), 2),
                 "currency": "INR",
-                "status": "PENDING",
+                "status": "SUCCESS",
                 "description": f"Auto-generated batch payment #{i+1}"
             }
             messages.append({"Id": str(i), "MessageBody": json.dumps(payment_data)})
@@ -238,7 +238,7 @@ def get_latest_payments(limit: int = 20, db: Session = Depends(get_db)):
                 "user_id": row.user_id,
                 "amount": float(row.amount),
                 "currency": row.currency or "INR",
-                "status": row.status or "PENDING",
+                "status": row.status or "SUCCESS",
                 "description": row.description or "",
                 "created_at": row.created_at,
             }
