@@ -83,28 +83,111 @@ def get_db():
 # ----------------------------------------------------------
 # 🧰 Tools
 # ----------------------------------------------------------
-def search_listings_tool(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
-    """Mock property listing search."""
-    PROPERTY_API_KEY = os.getenv("PROPERTY_API_KEY")
-    if PROPERTY_API_KEY:
-        try:
-            resp = requests.get(
-                "https://api.example.com/search",
-                params={"q": query, "limit": max_results},
-                headers={"Authorization": f"Bearer {PROPERTY_API_KEY}"},
-                timeout=10,
-            )
-            return resp.json().get("results", [])
-        except Exception as e:
-            LOGGER.warning(f"search_listings_tool error: {e}")
+# def search_listings_tool(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+#     """Mock property listing search."""
+#     PROPERTY_API_KEY = os.getenv("PROPERTY_API_KEY")
+#     if PROPERTY_API_KEY:
+#         try:
+#             resp = requests.get(
+#                 "https://api.example.com/search",
+#                 params={"q": query, "limit": max_results},
+#                 headers={"Authorization": f"Bearer {PROPERTY_API_KEY}"},
+#                 timeout=10,
+#             )
+#             return resp.json().get("results", [])
+#         except Exception as e:
+#             LOGGER.warning(f"search_listings_tool error: {e}")
 
-    return [
-        {"id": "L1", "title": "3BHK in South Bangalore", "price": 8500000, "area": 1200, "bedrooms": 3, "bathrooms": 2},
-        {"id": "L2", "title": "2BHK near MG Road", "price": 7200000, "area": 950, "bedrooms": 2, "bathrooms": 1},
-        {"id": "L3", "title": "4BHK independent house", "price": 16000000, "area": 2500, "bedrooms": 4, "bathrooms": 3},
-        {"id": "L4", "title": "3BHK apartment - outskirts", "price": 5500000, "area": 1400, "bedrooms": 3, "bathrooms": 2},
-        {"id": "L5", "title": "2BHK resale", "price": 4800000, "area": 800, "bedrooms": 2, "bathrooms": 1},
-    ][:max_results]
+#     return [
+#         {"id": "L1", "title": "3BHK in South Bangalore", "price": 8500000, "area": 1200, "bedrooms": 3, "bathrooms": 2},
+#         {"id": "L2", "title": "2BHK near MG Road", "price": 7200000, "area": 950, "bedrooms": 2, "bathrooms": 1},
+#         {"id": "L3", "title": "4BHK independent house", "price": 16000000, "area": 2500, "bedrooms": 4, "bathrooms": 3},
+#         {"id": "L4", "title": "3BHK apartment - outskirts", "price": 5500000, "area": 1400, "bedrooms": 3, "bathrooms": 2},
+#         {"id": "L5", "title": "2BHK resale", "price": 4800000, "area": 800, "bedrooms": 2, "bathrooms": 1},
+#     ][:max_results]
+
+import random
+
+def search_listings_tool(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+    """
+    Generate mock property listings dynamically based on city or query.
+    """
+    query_lower = query.lower()
+
+    # City-specific templates
+    listings_data = {
+        "bangalore": [
+            ("Indiranagar", 9500000, 1200),
+            ("Whitefield", 8700000, 1100),
+            ("Koramangala", 12500000, 1400),
+            ("HSR Layout", 9900000, 1300),
+            ("JP Nagar", 8800000, 1150),
+            ("Electronic City", 7000000, 1050),
+            ("Yelahanka", 7500000, 1200),
+            ("BTM Layout", 9200000, 1250),
+            ("Hebbal", 9700000, 1280),
+            ("Marathahalli", 8500000, 1180),
+        ],
+        "hyderabad": [
+            ("Gachibowli", 9500000, 1250),
+            ("Madhapur", 8700000, 1150),
+            ("Kondapur", 8900000, 1220),
+            ("Banjara Hills", 14500000, 1600),
+            ("Manikonda", 8200000, 1100),
+            ("Kukatpally", 7600000, 1050),
+            ("HiTech City", 13800000, 1550),
+            ("Miyapur", 7200000, 980),
+            ("Tellapur", 8800000, 1200),
+            ("Nallagandla", 9000000, 1180),
+        ],
+        "pune": [
+            ("Hinjewadi", 8500000, 1200),
+            ("Baner", 9200000, 1300),
+            ("Wakad", 8700000, 1180),
+            ("Kharadi", 9700000, 1350),
+            ("Hadapsar", 7800000, 1100),
+            ("Magarpatta", 9900000, 1400),
+            ("Aundh", 10500000, 1450),
+            ("Viman Nagar", 11200000, 1500),
+            ("Kothrud", 9500000, 1380),
+            ("Balewadi", 8800000, 1250),
+        ],
+        "chennai": [
+            ("Velachery", 8500000, 1200),
+            ("T Nagar", 11500000, 1450),
+            ("Anna Nagar", 11200000, 1420),
+            ("Porur", 7800000, 1100),
+            ("Tambaram", 7300000, 950),
+            ("Adyar", 11800000, 1550),
+            ("Sholinganallur", 9000000, 1280),
+            ("Guindy", 9700000, 1350),
+            ("Ambattur", 7400000, 980),
+            ("Nungambakkam", 12500000, 1600),
+        ],
+    }
+
+    # Detect which city to use
+    city = "bangalore"
+    for c in listings_data.keys():
+        if c in query_lower:
+            city = c
+            break
+
+    sample_listings = []
+    for idx, (area, base_price, sqft) in enumerate(listings_data[city]):
+        # Randomize prices a bit for realism
+        random_price = base_price + random.randint(-500000, 500000)
+        sample_listings.append({
+            "id": f"{city[:2].upper()}-{idx+1}",
+            "title": f"3BHK Apartment in {area}, {city.title()}",
+            "price": random_price,
+            "area": sqft,
+            "bedrooms": random.choice([2, 3, 4]),
+            "bathrooms": random.choice([2, 3]),
+            "url": f"https://example.com/{city}/{area.replace(' ', '-').lower()}",
+        })
+
+    return sample_listings[:max_results]
 
 
 def predict_listing_tool(area: float, bedrooms: int, bathrooms: int) -> Dict[str, Any]:
