@@ -7,7 +7,7 @@ import random
 
 from .routers import dogs, comments, posts, auth
 # pay, payments, consumer
-from .routers import payments
+from .routers import payments, predict
 from .models import Dog, Comment, Post, Image, User, SessionLocal
 from .load_test import router as load_test_router
 #from .load_test_ui import router as load_test_ui_router
@@ -59,10 +59,27 @@ app.add_middleware(
 # ✅ Custom HTTPS redirect middleware
 # (handles HTTP→HTTPS safely without breaking OPTIONS preflight)
 # -------------------------------------------------------------------
+# @app.middleware("http")
+# async def conditional_https_redirect(request: Request, call_next):
+#     # Skip redirect for preflight requests and when already HTTPS
+#     if request.url.scheme == "http" and request.method != "OPTIONS":
+#         url = request.url.replace(scheme="https")
+#         return RedirectResponse(url=url._url)
+#     return await call_next(request)
+
+
+# -------------------------------------------------------------------
+# ✅ Conditional HTTPS redirect (disabled for localhost)
+# -------------------------------------------------------------------
 @app.middleware("http")
 async def conditional_https_redirect(request: Request, call_next):
-    # Skip redirect for preflight requests and when already HTTPS
-    if request.url.scheme == "http" and request.method != "OPTIONS":
+    host = request.url.hostname
+    # Redirect only if NOT running locally
+    if (
+        host not in ["127.0.0.1", "localhost"]
+        and request.url.scheme == "http"
+        and request.method != "OPTIONS"
+    ):
         url = request.url.replace(scheme="https")
         return RedirectResponse(url=url._url)
     return await call_next(request)
@@ -142,6 +159,7 @@ app.include_router(posts.router)
 app.include_router(payments.router)
 app.include_router(load_test_router)
 app.include_router(payments_router)
+app.include_router(predict.router)
 
 @app.get("/")
 async def health_check():

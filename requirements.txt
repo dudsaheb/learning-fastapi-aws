@@ -23,3 +23,8 @@ python-multipart
 aiohttp
 asyncio
 jinja2
+scikit-learn
+joblib
+numpy
+pandas
+pydantic
