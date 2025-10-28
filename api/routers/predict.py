@@ -7,19 +7,17 @@ import joblib
 import numpy as np
 import os
 import datetime
+import json
 
 router = APIRouter(prefix="/predict", tags=["Prediction"])
 
-# =========================
-# 🔧 Ensure tables exist
-# =========================
+# ====================================================
+# 🗄️  Database Setup
+# ====================================================
 Base.metadata.create_all(bind=engine)
 
-# =========================
-# 💾 Database Dependency
-# =========================
 def get_db():
-    """Provides a database session using models.SessionLocal."""
+    """Provide a SQLAlchemy database session."""
     db = SessionLocal()
     try:
         yield db
@@ -28,10 +26,11 @@ def get_db():
 
 print(f"🗄️  Active database engine URL: {engine.url}")
 
-# =========================
+# ====================================================
 # 🤖 Load ML Model
-# =========================
+# ====================================================
 MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "model", "model.pkl"))
+MODEL_INFO_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "model", "model_info.json"))
 
 try:
     model = joblib.load(MODEL_PATH)
@@ -40,187 +39,172 @@ except Exception as e:
     print(f"❌ Error loading model from {MODEL_PATH}: {e}")
     model = None
 
+# Try loading metadata
+try:
+    with open(MODEL_INFO_PATH, "r") as f:
+        model_info_data = json.load(f)
+except Exception:
+    model_info_data = {
+        "model_name": "Linear Regression",
+        "framework": "scikit-learn",
+        "trained_on": "unknown",
+        "status": "unknown",
+    }
 
-# =========================
-# 📦 Schema Definitions
-# =========================
+# ====================================================
+# 🧩 Pydantic Schemas
+# ====================================================
 class InputData(BaseModel):
     area: float
     bedrooms: int
     bathrooms: int
 
+class LogData(InputData):
+    predicted_price: float
 
-# =========================
-# 🔹 Predict Endpoint
-# =========================
+
+# ====================================================
+# 🔮 Predict Endpoint
+# ====================================================
 @router.post("/")
 def predict_price(data: InputData):
-    """Predict house price using trained ML model."""
+    """Predict house price using the trained ML model."""
     if model is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
 
     try:
         features = np.array([[data.area, data.bedrooms, data.bathrooms]])
-        predicted_price = model.predict(features)[0]
-        return {"predicted_price": round(float(predicted_price), 2)}
+        predicted_price_lakh = model.predict(features)[0]
+        predicted_price_inr = predicted_price_lakh * 100000  # ✅ Convert Lakhs → ₹
+
+        return {
+            "area": data.area,
+            "bedrooms": data.bedrooms,
+            "bathrooms": data.bathrooms,
+            "predicted_price": round(float(predicted_price_inr), 2),
+            "currency": "INR",
+            "message": "Prediction successful"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 
-# =========================
+# ====================================================
 # 🧠 Model Info Endpoint
-# =========================
+# ====================================================
 @router.get("/info")
 def model_info():
-    """Return metadata about the ML model."""
-    return {
-        "model_name": "Linear Regression",
-        "framework": "scikit-learn",
-        "trained_on": "2025-10-27",
-        "status": "active",
-        "path": MODEL_PATH,
-    }
+    """Return model metadata."""
+    model_info_data["path"] = MODEL_PATH
+    model_info_data["status"] = "active" if model else "not loaded"
+    return model_info_data
 
 
-# =========================
-# 🪣 Log Predictions to DB
-# =========================
+# ====================================================
+# 💾 Log Prediction
+# ====================================================
 @router.post("/log")
-def log_prediction(data: dict, db: Session = Depends(get_db)):
+def log_prediction(data: LogData, db: Session = Depends(get_db)):
     """
-    Log prediction request and response to DB for analytics.
-    Creates 'prediction_logs' table dynamically if not exists.
-    Works with both SQLite (local) and PostgreSQL (AWS).
+    Log prediction request and result into database.
+    Works with both SQLite and PostgreSQL.
     """
     try:
-        # Detect if running on SQLite
         is_sqlite = "sqlite" in str(db.bind.url)
 
-        # ✅ Create table dynamically depending on DB type
-        if is_sqlite:
-            db.execute(text("""
-                CREATE TABLE IF NOT EXISTS prediction_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    area FLOAT,
-                    bedrooms INT,
-                    bathrooms INT,
-                    predicted_price FLOAT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """))
-        else:
-            db.execute(text("""
-                CREATE TABLE IF NOT EXISTS prediction_logs (
-                    id SERIAL PRIMARY KEY,
-                    area FLOAT,
-                    bedrooms INT,
-                    bathrooms INT,
-                    predicted_price FLOAT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """))
+        # ✅ Ensure table exists
+        create_table_sql = """
+            CREATE TABLE IF NOT EXISTS prediction_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                area FLOAT,
+                bedrooms INT,
+                bathrooms INT,
+                predicted_price FLOAT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """ if is_sqlite else """
+            CREATE TABLE IF NOT EXISTS prediction_logs (
+                id SERIAL PRIMARY KEY,
+                area FLOAT,
+                bedrooms INT,
+                bathrooms INT,
+                predicted_price FLOAT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """
+        db.execute(text(create_table_sql))
         db.commit()
 
-        # ✅ Insert prediction data
+        # ✅ Insert data
         if is_sqlite:
             db.execute(text("""
                 INSERT INTO prediction_logs (area, bedrooms, bathrooms, predicted_price)
-                VALUES (:area, :bedrooms, :bathrooms, :predicted_price);
-            """), {
-                "area": data.get("area"),
-                "bedrooms": data.get("bedrooms"),
-                "bathrooms": data.get("bathrooms"),
-                "predicted_price": data.get("predicted_price")
-            })
+                VALUES (:area, :bedrooms, :bathrooms, :predicted_price)
+            """), data.dict())
             db.commit()
-
-            # ✅ Fetch last inserted ID and timestamp in SQLite
             last_id = db.execute(text("SELECT last_insert_rowid();")).scalar()
-            result = db.execute(text("SELECT created_at FROM prediction_logs WHERE id = :id;"), {"id": last_id})
-            row = result.fetchone()
-
-            created_at_value = row[0] if row and row[0] else None
-            # ✅ Fallback if SQLite hasn’t updated created_at yet
-            if not created_at_value:
-                created_at_value = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            return {
-                "status": "logged",
-                "id": last_id,
-                "created_at": created_at_value,
-                "message": "Prediction logged successfully (SQLite)"
-            }
-
+            created_at = db.execute(text("SELECT created_at FROM prediction_logs WHERE id = :id;"), {"id": last_id}).scalar()
         else:
-            # ✅ PostgreSQL with RETURNING clause
             result = db.execute(text("""
                 INSERT INTO prediction_logs (area, bedrooms, bathrooms, predicted_price)
                 VALUES (:area, :bedrooms, :bathrooms, :predicted_price)
-                RETURNING id, created_at;
-            """), {
-                "area": data.get("area"),
-                "bedrooms": data.get("bedrooms"),
-                "bathrooms": data.get("bathrooms"),
-                "predicted_price": data.get("predicted_price")
-            })
+                RETURNING id, created_at
+            """), data.dict())
             db.commit()
             row = result.fetchone()
+            last_id, created_at = (row[0], row[1]) if row else (None, None)
 
-            return {
-                "status": "logged",
-                "id": row[0] if row else None,
-                "created_at": row[1] if row else None,
-                "message": "Prediction logged successfully (PostgreSQL)"
-            }
+        return {
+            "status": "logged",
+            "id": last_id,
+            "created_at": str(created_at),
+            "message": f"Prediction logged successfully ({'SQLite' if is_sqlite else 'PostgreSQL'})"
+        }
 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"DB log error: {e}")
 
 
-# =========================
-# 📊 Fetch Recent Predictions
-# =========================
+# ====================================================
+# 📜 Fetch Prediction History
+# ====================================================
 @router.get("/history")
 def get_recent_predictions(limit: int = 10, db: Session = Depends(get_db)):
-    """
-    Fetch the most recent prediction logs for analytics dashboard.
-    Works reliably on SQLite and PostgreSQL.
-    """
+    """Fetch latest predictions."""
     try:
-        # Fetch all rows (raw SQL)
         result = db.execute(text("""
             SELECT id, area, bedrooms, bathrooms, predicted_price, created_at
             FROM prediction_logs
             ORDER BY id DESC
-            LIMIT :limit;
+            LIMIT :limit
         """), {"limit": limit}).fetchall()
 
-        # Convert rows safely (support both tuple and mapping)
-        rows = []
+        records = []
         for row in result:
-            try:
-                # Modern SQLAlchemy RowMapping object
-                rows.append({
-                    "id": int(row._mapping["id"]) if row._mapping["id"] is not None else None,
-                    "area": float(row._mapping["area"]),
-                    "bedrooms": int(row._mapping["bedrooms"]),
-                    "bathrooms": int(row._mapping["bathrooms"]),
-                    "predicted_price": float(row._mapping["predicted_price"]),
-                    "created_at": str(row._mapping["created_at"]),
+            row_map = getattr(row, "_mapping", None)
+            if row_map:
+                # SQLAlchemy 2.x RowMapping
+                records.append({
+                    "id": row_map.get("id"),
+                    "area": row_map.get("area"),
+                    "bedrooms": row_map.get("bedrooms"),
+                    "bathrooms": row_map.get("bathrooms"),
+                    "predicted_price": row_map.get("predicted_price"),
+                    "created_at": str(row_map.get("created_at")),
                 })
-            except Exception:
-                # Fallback for SQLite returning tuples
-                rows.append({
-                    "id": int(row[0]) if row[0] is not None else None,
-                    "area": float(row[1]),
-                    "bedrooms": int(row[2]),
-                    "bathrooms": int(row[3]),
-                    "predicted_price": float(row[4]),
+            else:
+                # SQLite tuple fallback
+                records.append({
+                    "id": row[0],
+                    "area": row[1],
+                    "bedrooms": row[2],
+                    "bathrooms": row[3],
+                    "predicted_price": row[4],
                     "created_at": str(row[5]),
                 })
 
-        return rows
+        return records
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching history: {e}")
