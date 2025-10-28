@@ -28,3 +28,4 @@ joblib
 numpy
 pandas
 pydantic
+openai

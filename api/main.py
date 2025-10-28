@@ -19,6 +19,7 @@ from fastapi import Request
 import traceback
 from fastapi.responses import JSONResponse
 import sys
+from api.agents import property_agent
 
 
 load_dotenv()
@@ -163,6 +164,9 @@ app.include_router(payments.router)
 app.include_router(load_test_router)
 app.include_router(payments_router)
 app.include_router(predict.router)
+app.include_router(property_agent.router)
+
+
 
 @app.get("/")
 async def health_check():
