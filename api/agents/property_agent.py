@@ -25,6 +25,8 @@ from sqlalchemy import text
 import joblib
 import numpy as np
 import logging
+import random
+import urllib.parse
 
 # ----------------------------------------------------------
 # 🚀 Initialize
@@ -106,15 +108,17 @@ def get_db():
 #         {"id": "L5", "title": "2BHK resale", "price": 4800000, "area": 800, "bedrooms": 2, "bathrooms": 1},
 #     ][:max_results]
 
-import random
+
+
 
 def search_listings_tool(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
     """
     Generate mock property listings dynamically based on city or query.
+    Includes real property URLs from MagicBricks / 99acres / Housing.
     """
     query_lower = query.lower()
 
-    # City-specific templates
+    # City-specific area + price + size data
     listings_data = {
         "bangalore": [
             ("Indiranagar", 9500000, 1200),
@@ -166,28 +170,49 @@ def search_listings_tool(query: str, max_results: int = 10) -> List[Dict[str, An
         ],
     }
 
-    # Detect which city to use
+    # Detect city from query (fallback: Bangalore)
     city = "bangalore"
     for c in listings_data.keys():
         if c in query_lower:
             city = c
             break
 
-    sample_listings = []
+    # Build listings with dynamic URLs
+    base_urls = [
+        "https://www.magicbricks.com/property-for-sale/residential-real-estate",
+        "https://www.99acres.com/search/property/buy",
+        "https://housing.com/in/buy"
+    ]
+
+    listings = []
     for idx, (area, base_price, sqft) in enumerate(listings_data[city]):
-        # Randomize prices a bit for realism
         random_price = base_price + random.randint(-500000, 500000)
-        sample_listings.append({
+        bedrooms = random.choice([2, 3, 4])
+        bathrooms = random.choice([2, 3])
+
+        # Construct URL query for real listing pages
+        query_str = urllib.parse.quote_plus(f"{area} {city} apartment")
+        site_url = random.choice(base_urls)
+
+        if "magicbricks" in site_url:
+            listing_url = f"{site_url}?propType=apartment&cityName={city.title()}&locality={urllib.parse.quote_plus(area)}"
+        elif "99acres" in site_url:
+            listing_url = f"{site_url}?keyword={query_str}"
+        else:  # housing.com
+            listing_url = f"{site_url}/{city.lower()}?query={query_str}"
+
+        listings.append({
             "id": f"{city[:2].upper()}-{idx+1}",
-            "title": f"3BHK Apartment in {area}, {city.title()}",
+            "title": f"{bedrooms}BHK Apartment in {area}, {city.title()}",
             "price": random_price,
             "area": sqft,
-            "bedrooms": random.choice([2, 3, 4]),
-            "bathrooms": random.choice([2, 3]),
-            "url": f"https://example.com/{city}/{area.replace(' ', '-').lower()}",
+            "bedrooms": bedrooms,
+            "bathrooms": bathrooms,
+            "url": listing_url,
         })
 
-    return sample_listings[:max_results]
+    return listings[:max_results]
+
 
 
 def predict_listing_tool(area: float, bedrooms: int, bathrooms: int) -> Dict[str, Any]:
